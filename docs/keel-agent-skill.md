@@ -79,6 +79,23 @@ Rules:
 - `at:` is optional and uses comma-separated `HH:MM` times.
 - Preserve recurring IDs unless creating a new recurring definition.
 
+## Category Inference
+
+When creating a new task, infer an appropriate `category:` from the task title and context. Do not require the user to specify one manually.
+
+Infer categories as follows:
+- **Academic/study tasks**: `category:Academics` — e.g. "Write weekly report for Databases", "Complete Chapter 1 in TDDM", assignments, exam prep, revision.
+- **Software development / project work**: `category:Development` — e.g. "Publish Keel to GitHub", "Build Bubble Tea board view", code reviews, PRs, refactoring.
+- **Documentation / writing**: `category:Documentation` — e.g. "Write about Keel", READMEs, wiki pages, reports.
+- **Household / personal chores**: `category:Home` — e.g. cooking, cleaning, errands, groceries.
+- **Health / wellness**: `category:Health` — e.g. exercise, meditation, doctor appointments.
+- **Planning / admin**: `category:Planning` — e.g. scheduling, organising, retrospectives.
+- **Meetings / communication**: `category:Meetings` — standups, 1:1s, syncs, catch-ups.
+
+If a task doesn't clearly fit any category, or if the user has a well-known category for a type of work, create a new descriptive category (single word or PascalCase). For example, `category:Cooking`, `category:AI`, `category:Security`.
+
+Preserve the existing `category:` when editing a task unless the user explicitly asks to change it.
+
 ## Planning Heuristics
 
 - Group suggested work by due date, then priority.

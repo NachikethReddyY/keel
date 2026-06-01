@@ -101,7 +101,7 @@ keel ai
 keel ai "Break today into subtasks and tag agent-suitable work with +ai"
 ```
 
-The skill teaches agents the ledger grammar, subtask format, timer session format, and clarification rules.
+The skill teaches agents the ledger grammar, subtask format, timer session format, and clarification rules. It also instructs the AI to **auto-categorise** tasks by inferring a `category:` from the task title (e.g., academic tasks → `category:Academics`, dev work → `category:Development`, etc.) so you don't need to specify `--category` manually when using `keel ai`.
 
 ## Safety Model
 
