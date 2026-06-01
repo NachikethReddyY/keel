@@ -12,6 +12,7 @@ type theme struct {
 	warning lipgloss.Color
 	danger  lipgloss.Color
 	steel   lipgloss.Color
+	pillBg  lipgloss.Color
 }
 
 var harbor = theme{
@@ -24,25 +25,30 @@ var harbor = theme{
 	warning: lipgloss.Color("#e4b363"),
 	danger:  lipgloss.Color("#dd6b6b"),
 	steel:   lipgloss.Color("#84a3b8"),
+	pillBg:  lipgloss.Color("#1f2a26"),
 }
 
 type styles struct {
-	root      lipgloss.Style
-	header    lipgloss.Style
-	mark      lipgloss.Style
-	tab       lipgloss.Style
-	activeTab lipgloss.Style
-	column    lipgloss.Style
-	columnHot lipgloss.Style
-	card      lipgloss.Style
-	selected  lipgloss.Style
-	meta      lipgloss.Style
-	status    lipgloss.Style
-	timer     lipgloss.Style
-	help      lipgloss.Style
-	empty     lipgloss.Style
-	input     lipgloss.Style
-	errorBox  lipgloss.Style
+	root         lipgloss.Style
+	header       lipgloss.Style
+	mark         lipgloss.Style
+	tab          lipgloss.Style
+	activeTab    lipgloss.Style
+	column       lipgloss.Style
+	columnHot    lipgloss.Style
+	card         lipgloss.Style
+	selected     lipgloss.Style
+	meta         lipgloss.Style
+	metaSelected lipgloss.Style
+	tag          lipgloss.Style
+	tagPill      lipgloss.Style
+	status       lipgloss.Style
+	overdue      lipgloss.Style
+	timer        lipgloss.Style
+	help         lipgloss.Style
+	empty        lipgloss.Style
+	input        lipgloss.Style
+	errorBox     lipgloss.Style
 }
 
 func newStyles(t theme) styles {
@@ -68,31 +74,44 @@ func newStyles(t theme) styles {
 			Bold(true).
 			Padding(0, 1),
 		column: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), true).
-			BorderForeground(t.panel).
+			Background(t.panel).
+			Border(lipgloss.NormalBorder(), true, false, false, false).
+			BorderForeground(t.muted).
 			Padding(0, 1),
 		columnHot: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), true).
+			Background(t.panel).
+			Border(lipgloss.NormalBorder(), true, false, false, false).
 			BorderForeground(t.copper).
 			Padding(0, 1),
 		card: lipgloss.NewStyle().
 			Foreground(t.ink).
 			Background(t.panel).
 			Border(lipgloss.RoundedBorder(), true).
-			BorderForeground(t.panel).
-			Padding(0, 1).
+			BorderForeground(t.bg).
+			Padding(1, 1).
 			MarginBottom(1),
 		selected: lipgloss.NewStyle().
 			Foreground(t.bg).
 			Background(t.mint).
 			Border(lipgloss.RoundedBorder(), true).
 			BorderForeground(t.mint).
-			Padding(0, 1).
+			Padding(1, 1).
 			MarginBottom(1),
 		meta: lipgloss.NewStyle().
 			Foreground(t.muted),
+		metaSelected: lipgloss.NewStyle().
+			Foreground(t.mint).
+			Faint(true),
+		tag: lipgloss.NewStyle().
+			Foreground(t.copper),
+		tagPill: lipgloss.NewStyle().
+			Foreground(t.copper).
+			Background(t.pillBg),
 		status: lipgloss.NewStyle().
 			Foreground(t.steel),
+		overdue: lipgloss.NewStyle().
+			Foreground(t.danger).
+			Bold(true),
 		timer: lipgloss.NewStyle().
 			Foreground(t.bg).
 			Background(t.warning).

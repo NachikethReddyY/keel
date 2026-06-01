@@ -83,6 +83,13 @@ func (t Task) IsDueToday(now time.Time) bool {
 	return t.Due <= now.Format("2006-01-02")
 }
 
+func (t Task) IsOverdue(now time.Time) bool {
+	if t.Due == "" || t.IsDone() {
+		return false
+	}
+	return t.Due < now.Format("2006-01-02")
+}
+
 func (t Task) Checkbox() string {
 	if t.IsDone() {
 		return "x"

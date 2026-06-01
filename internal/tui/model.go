@@ -419,8 +419,12 @@ func (m model) renderWorkbench() string {
 		title += " matching " + m.query
 	}
 	rows = append(rows, m.styles.header.Render(title))
-	if m.filter == filterAll && m.query == "" {
-		rows = append(rows, m.groupedTaskRows(tasks, listWidth-4)...)
+	if (m.filter == filterAll || m.filter == filterDone) && m.query == "" {
+		if m.filter == filterDone {
+			rows = append(rows, m.doneGroupedTaskRows(tasks, listWidth-4)...)
+		} else {
+			rows = append(rows, m.groupedTaskRows(tasks, listWidth-4)...)
+		}
 	} else {
 		for i, task := range tasks {
 			rows = append(rows, m.taskCard(task, i == m.cursor, listWidth-4))
@@ -483,9 +487,33 @@ func (m model) renderRecurringDetail(recurring ledger.RecurringTask) string {
 
 func (m model) groupedTaskRows(tasks []ledger.Task, width int) []string {
 	var rows []string
+	now := time.Now()
+
+	// Separate overdue from regular tasks
+	var overdueTasks, regularTasks []ledger.Task
+	for _, task := range tasks {
+		if task.IsOverdue(now) {
+			overdueTasks = append(overdueTasks, task)
+		} else {
+			regularTasks = append(regularTasks, task)
+		}
+	}
+
+	taskIndex := 0
+
+	// Overdue section at the top with warning-style header
+	if len(overdueTasks) > 0 {
+		rows = append(rows, m.styles.overdue.Width(width).Render("Overdue"))
+		for _, task := range overdueTasks {
+			rows = append(rows, m.taskCard(task, taskIndex == m.cursor, width))
+			taskIndex++
+		}
+	}
+
+	// Regular tasks grouped by date, then priority
 	lastDate := ""
 	lastPriority := ledger.Priority("")
-	for i, task := range tasks {
+	for _, task := range regularTasks {
 		dateLabel := dueGroupLabel(task.Due)
 		if dateLabel != lastDate {
 			rows = append(rows, m.styles.status.Width(width).Render(dateLabel))
@@ -496,9 +524,82 @@ func (m model) groupedTaskRows(tasks []ledger.Task, width int) []string {
 			rows = append(rows, m.styles.meta.Width(width).Render(priorityLabel(task.Priority)))
 			lastPriority = task.Priority
 		}
-		rows = append(rows, m.taskCard(task, i == m.cursor, width))
+		rows = append(rows, m.taskCard(task, taskIndex == m.cursor, width))
+		taskIndex++
 	}
 	return rows
+}
+
+func (m model) doneGroupedTaskRows(tasks []ledger.Task, width int) []string {
+	var rows []string
+	if len(tasks) == 0 {
+		return rows
+	}
+
+	// Group tasks by due date, preserving task order (already sorted newest-first)
+	dateMap := make(map[string][]ledger.Task)
+	var dateOrder []string
+	for _, task := range tasks {
+		due := task.Due
+		if _, ok := dateMap[due]; !ok {
+			dateOrder = append(dateOrder, due)
+		}
+		dateMap[due] = append(dateMap[due], task)
+	}
+
+	// Sort date groups descending (already sorted by sortTasks, but ensure group order)
+	sort.SliceStable(dateOrder, func(i, j int) bool {
+		if dateOrder[i] == "" {
+			return false
+		}
+		if dateOrder[j] == "" {
+			return true
+		}
+		return dateOrder[i] > dateOrder[j]
+	})
+
+	// Render each date group
+	taskIndex := 0
+	for _, date := range dateOrder {
+		groupTasks := dateMap[date]
+
+		// Compute total tracked time for this day
+		var dayTotal time.Duration
+		for _, t := range groupTasks {
+			dayTotal += t.TrackedDuration(time.Now())
+		}
+
+		// Date header with day total
+		label := doneGroupLabel(date, dayTotal)
+		rows = append(rows, m.styles.status.Width(width).Render(label))
+
+		for _, task := range groupTasks {
+			rows = append(rows, m.taskCard(task, taskIndex == m.cursor, width))
+			taskIndex++
+		}
+	}
+
+	return rows
+}
+
+func doneGroupLabel(due string, total time.Duration) string {
+	totalStr := formatDuration(total)
+	if due == "" {
+		return "No date  (" + totalStr + ")"
+	}
+	parsed, err := time.Parse("2006-01-02", due)
+	if err != nil {
+		return due + "  (" + totalStr + ")"
+	}
+	today := time.Now().Format("2006-01-02")
+	label := parsed.Format("2 Jan 2006")
+	if due == today {
+		label = "Today — " + label
+	}
+	if total > 0 {
+		return fmt.Sprintf("%s  (%s)", label, totalStr)
+	}
+	return label
 }
 
 func (m model) renderErrors() string {
@@ -520,6 +621,9 @@ func (m model) renderDetail(task ledger.Task) string {
 	b.WriteString(fmt.Sprintf("due      %s\n", blank(task.Due)))
 	b.WriteString(fmt.Sprintf("category %s\n", blank(task.Category)))
 	b.WriteString(fmt.Sprintf("tracked  %s\n", formatDuration(task.TrackedDuration(time.Now()))))
+	if task.IsOverdue(time.Now()) {
+		b.WriteString("overdue  !!  \n")
+	}
 	if session, ok := task.ActiveSession(); ok {
 		b.WriteString(fmt.Sprintf("timer    running since %s\n", session.Start.Format("15:04")))
 	}
@@ -548,29 +652,54 @@ func (m model) renderDetail(task ledger.Task) string {
 }
 
 func (m model) taskCard(task ledger.Task, selected bool, width int) string {
-	meta := fmt.Sprintf("%s  %s  %s", task.ID, task.Status, task.Priority)
-	if task.Due != "" {
-		meta += "  due " + task.Due
+	metaStyle := m.styles.meta
+	tagStyle := m.styles.tag
+	if selected {
+		metaStyle = m.styles.metaSelected
+		tagStyle = m.styles.metaSelected
 	}
-	if task.Category != "" {
-		meta += "  " + task.Category
+
+	var segments []string
+
+	segments = append(segments, metaStyle.Render(task.ID))
+	segments = append(segments, metaStyle.Render(string(task.Status)))
+	segments = append(segments, metaStyle.Render(string(task.Priority)))
+
+	if task.IsOverdue(time.Now()) {
+		segments = append(segments, m.styles.overdue.Render("OVERDUE"))
+	}
+
+	if task.Due != "" {
+		segments = append(segments, metaStyle.Render("due "+task.Due))
+	}
+	if task.Category != "" && !selected {
+		segments = append(segments, m.styles.tagPill.Render(task.Category))
+	} else if task.Category != "" {
+		segments = append(segments, metaStyle.Render(task.Category))
 	}
 	if _, ok := task.ActiveSession(); ok {
-		meta += "  timer " + formatDuration(task.TrackedDuration(time.Now()))
+		segments = append(segments, metaStyle.Render("timer "+formatDuration(task.TrackedDuration(time.Now()))))
 	} else if tracked := task.TrackedDuration(time.Now()); tracked > 0 {
-		meta += "  tracked " + formatDuration(tracked)
+		if !selected {
+			segments = append(segments, tagStyle.Render("tracked "+formatDuration(tracked)))
+		} else {
+			segments = append(segments, metaStyle.Render("tracked "+formatDuration(tracked)))
+		}
 	}
-	if len(task.Tags) > 0 {
-		meta += "  +" + strings.Join(task.Tags, " +")
+	for _, tag := range task.Tags {
+		segments = append(segments, tagStyle.Render("+"+tag))
 	}
 	if len(task.Subtasks) > 0 {
-		meta += fmt.Sprintf("  %d subtasks", len(task.Subtasks))
+		segments = append(segments, metaStyle.Render(fmt.Sprintf("%d subtasks", len(task.Subtasks))))
 	}
+
+	metaLine := lipgloss.JoinHorizontal(lipgloss.Left, segments...)
+
 	style := m.styles.card.Width(width)
 	if selected {
 		style = m.styles.selected.Width(width)
 	}
-	return style.Render(task.Title + "\n" + m.styles.meta.Render(meta))
+	return style.Render(task.Title + "\n" + metaLine)
 }
 
 func (m model) visibleTasks() []ledger.Task {
@@ -858,6 +987,25 @@ func sortTasks(tasks []ledger.Task, filter filter) {
 	sort.SliceStable(tasks, func(i, j int) bool {
 		a := tasks[i]
 		b := tasks[j]
+		if filter == filterDone {
+			// Done tasks: newest first, no-date at the bottom
+			if a.Due == "" && b.Due == "" {
+				return strings.ToLower(a.Title) < strings.ToLower(b.Title)
+			}
+			if a.Due == "" {
+				return false
+			}
+			if b.Due == "" {
+				return true
+			}
+			if a.Due != b.Due {
+				return a.Due > b.Due
+			}
+			if priorityRank(a.Priority) != priorityRank(b.Priority) {
+				return priorityRank(a.Priority) < priorityRank(b.Priority)
+			}
+			return strings.ToLower(a.Title) < strings.ToLower(b.Title)
+		}
 		if filter == filterAll {
 			if dueSortKey(a.Due) != dueSortKey(b.Due) {
 				return dueSortKey(a.Due) < dueSortKey(b.Due)
