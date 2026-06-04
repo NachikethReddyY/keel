@@ -88,15 +88,15 @@ func newStyles(t theme) styles {
 			Background(t.panel).
 			Border(lipgloss.RoundedBorder(), true).
 			BorderForeground(t.bg).
-			Padding(1, 1).
-			MarginBottom(1),
+			Padding(0, 1).
+			MarginBottom(0),
 		selected: lipgloss.NewStyle().
 			Foreground(t.bg).
 			Background(t.mint).
 			Border(lipgloss.RoundedBorder(), true).
 			BorderForeground(t.mint).
-			Padding(1, 1).
-			MarginBottom(1),
+			Padding(0, 1).
+			MarginBottom(0),
 		meta: lipgloss.NewStyle().
 			Foreground(t.muted),
 		metaSelected: lipgloss.NewStyle().

@@ -64,6 +64,7 @@ type model struct {
 	err      error
 	status   string
 	input    textinput.Model
+	list     viewport.Model
 	detail   viewport.Model
 	mode     inputMode
 	editID   string
@@ -82,6 +83,7 @@ func New(snapshot store.Snapshot, cfg config.Config) tea.Model {
 		snapshot: snapshot,
 		styles:   newStyles(harbor),
 		input:    input,
+		list:     viewport.New(32, 8),
 		detail:   viewport.New(32, 8),
 		status:   "ready",
 	}
@@ -96,7 +98,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.list.Width = max(24, (msg.Width*2)/3)
 		m.detail.Width = max(24, msg.Width/3)
+		m.list.Height = max(6, msg.Height-10)
 		m.detail.Height = max(6, msg.Height-10)
 		return m, nil
 	case saveMsg:
@@ -413,25 +417,14 @@ func (m model) renderWorkbench() string {
 	}
 
 	listWidth := max(44, (m.width*2)/3)
-	var rows []string
-	title := fmt.Sprintf("%s tasks", filterNames[m.filter])
-	if m.query != "" {
-		title += " matching " + m.query
-	}
-	rows = append(rows, m.styles.header.Render(title))
-	if (m.filter == filterAll || m.filter == filterDone) && m.query == "" {
-		if m.filter == filterDone {
-			rows = append(rows, m.doneGroupedTaskRows(tasks, listWidth-4)...)
-		} else {
-			rows = append(rows, m.groupedTaskRows(tasks, listWidth-4)...)
-		}
-	} else {
-		for i, task := range tasks {
-			rows = append(rows, m.taskCard(task, i == m.cursor, listWidth-4))
-		}
-	}
+	content, selectionStart, selectionEnd := m.taskListContent(tasks, listWidth-4)
+	m.list.Width = listWidth
+	m.list.Height = max(6, m.height-10)
+	m.list.SetContent(content)
+	m.ensureSelectionVisible(selectionStart, selectionEnd)
+
 	detail := m.renderDetail(tasks[min(m.cursor, len(tasks)-1)])
-	return lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(listWidth).Render(lipgloss.JoinVertical(lipgloss.Left, rows...)), detail)
+	return lipgloss.JoinHorizontal(lipgloss.Top, m.styles.column.Width(listWidth).Render(m.list.View()), detail)
 }
 
 func (m model) renderRecurringWorkbench() string {
@@ -440,13 +433,13 @@ func (m model) renderRecurringWorkbench() string {
 		return m.styles.empty.Width(max(44, m.width-6)).Render("No recurring tasks yet.\n\nPress a to add one. Examples: daily 09:00 Make pasta, weekly mon 10:00 Review, mon,wed,fri 08:30 Stretch.")
 	}
 	listWidth := max(44, (m.width*2)/3)
-	var rows []string
-	rows = append(rows, m.styles.header.Render("Recurring tasks"))
-	for i, recurring := range items {
-		rows = append(rows, m.recurringCard(recurring, i == m.cursor, listWidth-4))
-	}
+	content, selectionStart, selectionEnd := m.recurringListContent(items, listWidth-4)
+	m.list.Width = listWidth
+	m.list.Height = max(6, m.height-10)
+	m.list.SetContent(content)
+	m.ensureSelectionVisible(selectionStart, selectionEnd)
 	detail := m.renderRecurringDetail(items[min(m.cursor, len(items)-1)])
-	return lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(listWidth).Render(lipgloss.JoinVertical(lipgloss.Left, rows...)), detail)
+	return lipgloss.JoinHorizontal(lipgloss.Top, m.styles.column.Width(listWidth).Render(m.list.View()), detail)
 }
 
 func (m model) recurringCard(recurring ledger.RecurringTask, selected bool, width int) string {
@@ -931,6 +924,137 @@ func (m model) recurringDueTasks(now time.Time) []ledger.Task {
 		tasks = append(tasks, recurring.DueTodayTasks(now)...)
 	}
 	return tasks
+}
+
+func (m *model) ensureSelectionVisible(start, end int) {
+	if m.list.Height <= 0 {
+		return
+	}
+	if start < m.list.YOffset {
+		m.list.SetYOffset(start)
+		return
+	}
+	bottom := m.list.YOffset + m.list.Height
+	if end > bottom {
+		m.list.SetYOffset(max(0, end-m.list.Height))
+	}
+}
+
+func (m model) taskListContent(tasks []ledger.Task, width int) (string, int, int) {
+	var b strings.Builder
+	b.WriteString(m.styles.header.Render(m.listTitle()) + "\n")
+	selectionStart, selectionEnd := 0, 0
+	line := 1
+	if (m.filter == filterAll || m.filter == filterDone) && m.query == "" {
+		rows := m.groupedTaskRowsWithRanges(tasks, width)
+		for i, row := range rows {
+			if i > 0 {
+				b.WriteString("\n")
+				line++
+			}
+			if row.selected {
+				selectionStart = line
+				selectionEnd = line + row.height
+			}
+			b.WriteString(row.rendered)
+			line += row.height - 1
+		}
+	} else {
+		for i, task := range tasks {
+			if i > 0 {
+				b.WriteString("\n")
+				line++
+			}
+			rendered := m.taskCard(task, i == m.cursor, width)
+			height := lipgloss.Height(rendered)
+			if i == m.cursor {
+				selectionStart = line
+				selectionEnd = line + height
+			}
+			b.WriteString(rendered)
+			line += height - 1
+		}
+	}
+	return b.String(), selectionStart, selectionEnd
+}
+
+func (m model) recurringListContent(items []ledger.RecurringTask, width int) (string, int, int) {
+	var b strings.Builder
+	b.WriteString(m.styles.header.Render("Recurring tasks") + "\n")
+	selectionStart, selectionEnd := 0, 0
+	line := 1
+	for i, item := range items {
+		if i > 0 {
+			b.WriteString("\n")
+			line++
+		}
+		rendered := m.recurringCard(item, i == m.cursor, width)
+		height := lipgloss.Height(rendered)
+		if i == m.cursor {
+			selectionStart = line
+			selectionEnd = line + height
+		}
+		b.WriteString(rendered)
+		line += height - 1
+	}
+	return b.String(), selectionStart, selectionEnd
+}
+
+func (m model) listTitle() string {
+	title := fmt.Sprintf("%s tasks", filterNames[m.filter])
+	if m.query != "" {
+		title += " matching " + m.query
+	}
+	return title
+}
+
+type renderedRow struct {
+	rendered string
+	height   int
+	selected bool
+}
+
+func (m model) groupedTaskRowsWithRanges(tasks []ledger.Task, width int) []renderedRow {
+	var rows []renderedRow
+	now := time.Now()
+	var overdueTasks, regularTasks []ledger.Task
+	for _, task := range tasks {
+		if task.IsOverdue(now) {
+			overdueTasks = append(overdueTasks, task)
+		} else {
+			regularTasks = append(regularTasks, task)
+		}
+	}
+	taskIndex := 0
+	if len(overdueTasks) > 0 {
+		r := m.styles.overdue.Width(width).Render("Overdue")
+		rows = append(rows, renderedRow{rendered: r, height: lipgloss.Height(r)})
+		for _, task := range overdueTasks {
+			r := m.taskCard(task, taskIndex == m.cursor, width)
+			rows = append(rows, renderedRow{rendered: r, height: lipgloss.Height(r), selected: taskIndex == m.cursor})
+			taskIndex++
+		}
+	}
+	lastDate := ""
+	lastPriority := ledger.Priority("")
+	for _, task := range regularTasks {
+		dateLabel := dueGroupLabel(task.Due)
+		if dateLabel != lastDate {
+			r := m.styles.status.Width(width).Render(dateLabel)
+			rows = append(rows, renderedRow{rendered: r, height: lipgloss.Height(r)})
+			lastDate = dateLabel
+			lastPriority = ""
+		}
+		if task.Priority != lastPriority {
+			r := m.styles.meta.Width(width).Render(priorityLabel(task.Priority))
+			rows = append(rows, renderedRow{rendered: r, height: lipgloss.Height(r)})
+			lastPriority = task.Priority
+		}
+		r := m.taskCard(task, taskIndex == m.cursor, width)
+		rows = append(rows, renderedRow{rendered: r, height: lipgloss.Height(r), selected: taskIndex == m.cursor})
+		taskIndex++
+	}
+	return rows
 }
 
 func blank(value string) string {
